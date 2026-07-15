@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
+using System.Net.Http.Headers;
 
 /*----- Class name should match FileName -----*/
 #if EXTERNAL_EDITOR
@@ -31,6 +32,10 @@ public class CPHInline
         int cooldownSeconds = ParseInt(GetArg("weatherCooldownSeconds", "30"), 30, 0, 600);
         int weatherCacheSeconds = ParseInt(GetArg("weatherCacheSeconds", "60"), 60, 0, 600);
 
+        string haBaseUrl = GetArg("haBaseUrl", "http://192.168.1.234:7777");
+        string haStueEntityId = GetArg("haStueEntityId", "sensor.temperature_and_humidity_sensor_t1_temperature");
+        string haToken = CPH.GetGlobalVar<string>("haToken", true) ?? string.Empty;
+
         string userId = GetArg("userId", string.Empty);
         string userName = GetArg("userName", "there");
         string cooldownKey = string.IsNullOrWhiteSpace(userId) ? userName : userId;
@@ -50,7 +55,7 @@ public class CPHInline
 
             string reply = string.Format(
                 CultureInfo.InvariantCulture,
-                "Weather for {0}: {1}, {2:0.#}C (feels {3:0.#}C), wind {4:0.#} km/h. For my American viewers, this is {5:0.#}F (feels {6:0.#}F), wind {7:0.#} mph.",
+                "Weather for {0}: {1}, {2:0.#}C/{5:0.#}F (feels {3:0.#}C/{6:0.#}F), wind {4:0.#} km/h ({7:0.#} mph).",
                 geo.DisplayName,
                 condition,
                 weather.CurrentTempC,
@@ -60,6 +65,17 @@ public class CPHInline
                 (weather.ApparentTempC * 9d / 5d) + 32d,
                 weather.WindKmh * 0.621371d
             );
+
+            double? stueTempC = GetStueTemperatureC(haBaseUrl, haStueEntityId, haToken);
+            if (stueTempC.HasValue)
+            {
+                reply += string.Format(
+                    CultureInfo.InvariantCulture,
+                    " Indoor temperature is currently {0:0.#}C ({1:0.#}F).",
+                    stueTempC.Value,
+                    (stueTempC.Value * 9d / 5d) + 32d
+                );
+            }
 
             CPH.SendMessage(reply);
             return true;
@@ -265,6 +281,48 @@ public class CPHInline
         }
 
         return payload;
+    }
+
+    private double? GetStueTemperatureC(string baseUrl, string entityId, string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            CPH.LogWarn("Stue temperature: no haToken configured, skipping Home Assistant lookup.");
+            return null;
+        }
+
+        try
+        {
+            string url = baseUrl.TrimEnd('/') + "/api/states/" + Uri.EscapeDataString(entityId);
+
+            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+                HttpResponseMessage response = Http.SendAsync(request).GetAwaiter().GetResult();
+                if (!response.IsSuccessStatusCode)
+                {
+                    CPH.LogWarn($"Stue temperature: Home Assistant returned status {response.StatusCode}.");
+                    return null;
+                }
+
+                string json = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                string stateRaw = ExtractString(json, "state", string.Empty);
+
+                if (string.IsNullOrWhiteSpace(stateRaw) || !double.TryParse(stateRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out double value))
+                {
+                    CPH.LogWarn("Stue temperature: failed to parse 'state' from Home Assistant response.");
+                    return null;
+                }
+
+                return value;
+            }
+        }
+        catch (Exception ex)
+        {
+            CPH.LogWarn($"Stue temperature: Home Assistant lookup failed: {ex.Message}");
+            return null;
+        }
     }
 
     private string ExtractObjectBlock(string json, string key)
