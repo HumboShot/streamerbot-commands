@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Text;
-using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 /*----- Class name should match FileName -----*/
@@ -13,7 +12,7 @@ public class CPHInline
 #endif
 /*--------------------------------------------*/
 {
-    private static readonly HttpClient client = new HttpClient();
+    private static readonly HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
 
     public bool Execute()
     {
@@ -21,27 +20,18 @@ public class CPHInline
 
         var finalColor = ValidateColor(rawInput);
 
+        string userName = "";
+        CPH.TryGetArg("userName", out userName);
+
         if (string.IsNullOrEmpty(finalColor))
         {
-            string userName = "";
-            CPH.TryGetArg("userName", out userName);
-
-            bool refundSuccess = false;
-            if (CPH.TryGetArg("rewardId", out string rewardId) && CPH.TryGetArg("redemptionId", out string redemptionId))
-            {
-                refundSuccess = CPH.TwitchRedemptionCancel(rewardId, redemptionId);
-            }
-
+            bool refundSuccess = Refund();
             CPH.LogWarn($"[Hue Lights] Invalid color input from viewer: '{rawInput}'. Refund attempted: {refundSuccess}.");
             CPH.SendMessage(
                 $"@{userName} '{rawInput}' is not a valid color. You can find the list here: https://link.humboshot.com/colors"
             );
 
             return true;
-        }
-        else
-        {
-            CPH.LogInfo($"[Hue Lights] Changing color to: {finalColor}");
         }
 
         var payload = new { color_name = finalColor };
@@ -50,26 +40,44 @@ public class CPHInline
 
         CPH.LogInfo($"[Hue Lights] Sending color change request to Home Assistant: {json}");
 
-        // Webhook is setup to only work with the local IP address of the Home Assistant server. Adjust the URL as needed for your setup.
-        var webhookUrl = "http://192.168.1.234:7777/api/webhook/twitch_hue_color";
+        // The webhook only accepts calls from the local network.
+        string haBaseUrl = CPH.GetGlobalVar<string>("haBaseUrl", true) ?? "http://192.168.1.234:7777";
+        var webhookUrl = haBaseUrl.TrimEnd('/') + "/api/webhook/twitch_hue_color";
 
-        Task.Run(async () =>
+        string error = null;
+        try
         {
-            try
+            HttpResponseMessage response = client.PostAsync(webhookUrl, content).GetAwaiter().GetResult();
+            if (!response.IsSuccessStatusCode)
             {
-                HttpResponseMessage response = await client.PostAsync(webhookUrl, content);
-                if (!response.IsSuccessStatusCode)
-                {
-                    CPH.LogWarn($"[Hue Lights] HA Webhook failed with status: {response.StatusCode}");
-                }
+                error = $"status {response.StatusCode}";
             }
-            catch (Exception ex)
-            {
-                CPH.LogWarn($"[Hue Lights] Exception calling HA: {ex.Message}");
-            }
-        });
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+
+        if (error != null)
+        {
+            bool refundSuccess = Refund();
+            CPH.LogWarn($"[Hue Lights] HA webhook failed: {error}. Refund attempted: {refundSuccess}.");
+            CPH.SendMessage(refundSuccess
+                ? $"@{userName} the lights did not respond, so your points were refunded."
+                : $"@{userName} the lights did not respond. Sorry about that!");
+        }
 
         return true;
+    }
+
+    private bool Refund()
+    {
+        if (CPH.TryGetArg("rewardId", out string rewardId) && CPH.TryGetArg("redemptionId", out string redemptionId))
+        {
+            return CPH.TwitchRedemptionCancel(rewardId, redemptionId);
+        }
+
+        return false;
     }
 
     private string? ValidateColor(string input)
