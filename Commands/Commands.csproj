@@ -32,4 +32,9 @@
       <!-- Uncomment the following line to reference all dlls in the streamerbot directory -->
       <!-- <Reference Include="$(StreamerBotPath)/**/*.dll" /> -->
    </ItemGroup>
+
+   <!-- Write paste-ready copies of the commands, with secrets filled in, to dist/ -->
+   <Target Name="ExportCommands" AfterTargets="Build">
+      <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\export.ps1&quot;" />
+   </Target>
 </Project>

@@ -15,3 +15,7 @@ $RECYCLE.BIN/
 # Build output
 bin/
 obj/
+
+### Secrets and paste-ready output
+secrets.json
+dist/

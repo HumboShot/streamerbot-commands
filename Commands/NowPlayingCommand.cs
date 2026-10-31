@@ -14,7 +14,8 @@ public class CPHInline
         Timeout = TimeSpan.FromSeconds(8)
     };
 
-    private const string Endpoint = "https://widget.nowplaying.site/current/REDACTED";
+    // Filled in from secrets.json by export.ps1 at build time.
+    private const string Endpoint = "{{NOW_PLAYING_URL}}";
 
     public bool Execute()
     {
