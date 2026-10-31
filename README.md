@@ -23,3 +23,7 @@ This repo was split out of the original `twitch-webpages` monorepo, keeping full
 6. `WeatherCommand` and `SetLightCommand` both call Home Assistant at `http://192.168.1.234:7777`. To change this address in one place, add a persisted Global variable named `haBaseUrl`. A `haBaseUrl` action argument on the weather action overrides it.
 7. `NowPlayingCommand` reads the song from your private nowplaying.site widget URL. Set it as `NOW_PLAYING_URL` in `secrets.json`.
 8. `SetLightCommand` refunds the channel point redeem when the color is not valid, or when Home Assistant does not respond.
+
+## License
+
+[MIT](LICENSE)
